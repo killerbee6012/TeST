@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Mario-ähnliches Laufspiel (Final)</title>
+    <title>Mario-ähnliches Laufspiel (Slide + Jump)</title>
     <style>
         body {
             margin: 0;
@@ -75,6 +75,7 @@
     </div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.18.0/matter.min.js"></script>
     <script>
+        // Game Variables
         let gameActive = false;
         let score = 0;
         let scrollSpeed = 3;
@@ -85,6 +86,7 @@
         let isSliding = false;
         let slideTimer = 0;
 
+        // Matter.js Setup
         const Engine = Matter.Engine,
               Render = Matter.Render,
               Runner = Matter.Runner,
@@ -92,10 +94,12 @@
               Composite = Matter.Composite,
               Events = Matter.Events;
 
+        // Engine erstellen
         const engine = Engine.create();
         const world = engine.world;
         engine.gravity.y = 0.8;
 
+        // Canvas & Renderer
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const render = Render.create({
@@ -109,12 +113,14 @@
             }
         });
 
+        // Game Elements
         let player;
         let ground;
         let obstacles = [];
         let clouds = [];
         let backgroundOffset = 0;
 
+        // Create Clouds
         function createClouds() {
             for (let i = 0; i < 5; i++) {
                 clouds.push({
@@ -126,6 +132,7 @@
             }
         }
 
+        // Draw Clouds
         function drawClouds() {
             ctx.save();
             clouds.forEach(cloud => {
@@ -147,6 +154,7 @@
             ctx.restore();
         }
 
+        // Create Player
         function createPlayer() {
             player = Bodies.rectangle(100, 400 - groundHeight - playerHeight/2, 
                                     playerWidth, playerHeight, {
@@ -159,23 +167,29 @@
             Composite.add(world, player);
         }
 
+        // Draw Player
         function drawPlayer() {
             ctx.save();
             ctx.translate(player.position.x, player.position.y);
             ctx.rotate(player.angle);
             
             if (isSliding) {
+                // Slide position (flach, auf Boden)
                 ctx.fillStyle = '#FF0000';
                 ctx.fillRect(-playerWidth/2, -15, playerWidth, 30);
+                
                 ctx.fillStyle = '#0000FF';
                 ctx.fillRect(-playerWidth/2, -5, playerWidth, 20);
             } else {
+                // Normal position
                 ctx.fillStyle = '#FF0000';
                 ctx.fillRect(-playerWidth/2, -playerHeight/2, playerWidth, playerHeight);
+                
                 ctx.fillStyle = '#0000FF';
                 ctx.fillRect(-playerWidth/2, -playerHeight/6, playerWidth, playerHeight/3);
             }
-
+            
+            // Kopf in beiden Positionen
             ctx.fillStyle = '#FFC0CB';
             ctx.beginPath();
             ctx.arc(0, isSliding ? -10 : -playerHeight/4, playerWidth/3, 0, Math.PI * 2);
@@ -184,6 +198,7 @@
             ctx.restore();
         }
 
+        // Create Ground
         function createGround() {
             ground = Bodies.rectangle(400, 400 - groundHeight/2, 800, groundHeight, {
                 isStatic: true,
@@ -193,201 +208,253 @@
             Composite.add(world, ground);
         }
 
+        // Draw Ground
         function drawGround() {
             ctx.fillStyle = '#4CAF50';
             ctx.fillRect(0, 400 - groundHeight, 800, groundHeight);
+            
+            // Ground details
             ctx.fillStyle = '#388E3C';
             for (let x = -backgroundOffset % 40; x < 800; x += 40) {
                 ctx.fillRect(x, 400 - groundHeight, 20, 5);
             }
         }
 
+        // Create Obstacles
         function createObstacle() {
-            const types = ['pipe', 'block'];
+            const types = ['pipe', 'block', 'low'];
             const type = types[Math.floor(Math.random() * types.length)];
+            
             let obstacle;
             const x = 850;
-
+            
             if (type === 'pipe') {
+                // Röhren: hoch, zum Überspringen
                 const pipeHeight = Math.random() * 50 + 50;
                 obstacle = Bodies.rectangle(x, 400 - groundHeight - pipeHeight/2, 
-                                            50, pipeHeight, {
+                                          50, pipeHeight, {
                     isStatic: true,
-                    label: 'obstacle'
+                    label: 'obstacle',
+                    obstacleType: 'pipe'
+                });
+            } else if (type === 'block') {
+                // Kleine Blöcke: tödlich bei Kontakt
+                obstacle = Bodies.rectangle(x, 400 - groundHeight - 30, 
+                                          40, 40, {
+                    isStatic: true,
+                    label: 'obstacle',
+                    obstacleType: 'block'
                 });
             } else {
-                obstacle = Bodies.rectangle(x, 400 - groundHeight - 30, 
-                                            40, 40, {
+                // Hängendes niedriges Hindernis (drunter sliden)
+                const lowHeight = 20;
+                obstacle = Bodies.rectangle(x, 400 - groundHeight - playerHeight - lowHeight/2 + 5, 
+                                          70, lowHeight, {
                     isStatic: true,
-                    label: 'obstacle'
+                    label: 'obstacle',
+                    obstacleType: 'low'
                 });
             }
-
-            obstacles.push({ body: obstacle, type: type });
+            
+            obstacles.push({
+                body: obstacle,
+                type: type
+            });
             Composite.add(world, obstacle);
         }
 
+        // Draw Obstacles
         function drawObstacles() {
             obstacles.forEach(obstacle => {
                 ctx.save();
                 ctx.translate(obstacle.body.position.x, obstacle.body.position.y);
                 ctx.rotate(obstacle.body.angle);
-
+                
                 if (obstacle.type === 'pipe') {
                     ctx.fillStyle = '#00AA00';
-                    ctx.fillRect(-25, -obstacle.body.bounds.max.y + obstacle.body.position.y, 50, obstacle.body.bounds.max.y - obstacle.body.bounds.min.y);
+                    const height = obstacle.body.bounds.max.y - obstacle.body.bounds.min.y;
+                    ctx.fillRect(-25, -height/2, 50, height);
+                    // Pipe details
                     ctx.fillStyle = '#007700';
-                    ctx.fillRect(-20, -obstacle.body.bounds.max.y + obstacle.body.position.y + 5, 40, 8);
-                } else {
+                    ctx.fillRect(-20, -height/2 + 5, 40, 8);
+                } else if (obstacle.type === 'block') {
                     ctx.fillStyle = '#B87333';
                     ctx.fillRect(-20, -20, 40, 40);
+                    // Block details
                     ctx.fillStyle = '#A05A2C';
-                    ctx.fillRect(-15, -15, 30, 5);
+                    ctx.fillRect(-15, -15, 30, 10);
+                } else if (obstacle.type === 'low') {
+                    ctx.fillStyle = '#663300';
+                    ctx.fillRect(-35, -10, 70, 20);
                 }
-
+                
                 ctx.restore();
             });
         }
 
-        function startGame() {
-            gameActive = true;
-            score = 0;
-            scrollSpeed = 3;
-            isJumping = false;
-            isSliding = false;
-            document.getElementById('startButton').style.display = 'none';
-            document.getElementById('gameOver').style.display = 'none';
-            Composite.clear(world);
-            obstacles = [];
-            clouds = [];
-            createPlayer();
-            createGround();
-            createClouds();
-
-            obstacleInterval = setInterval(() => {
-                if (gameActive) createObstacle();
-            }, 2000);
-
-            if (!runner) {
-                runner = Runner.create();
-                Runner.run(runner, engine);
-            }
-
-            requestAnimationFrame(gameLoop);
+        // Update Obstacles
+        function updateObstacles() {
+            obstacles.forEach((obstacle, index) => {
+                Matter.Body.translate(obstacle.body, {x: -scrollSpeed, y: 0});
+                
+                if (obstacle.body.position.x < -50) {
+                    Composite.remove(world, obstacle.body);
+                    obstacles.splice(index, 1);
+                    score++;
+                    updateScore();
+                }
+            });
         }
 
-        function gameOver() {
+        // Update Score Display
+        function updateScore() {
+            document.getElementById('score').textContent = 'Score: ' + score;
+        }
+
+        // Reset Game
+        function resetGame() {
+            // Entferne alle Hindernisse
+            obstacles.forEach(obstacle => Composite.remove(world, obstacle.body));
+            obstacles = [];
+
+            // Spieler zurücksetzen
+            Matter.Body.setPosition(player, {x: 100, y: 400 - groundHeight - playerHeight/2});
+            Matter.Body.setVelocity(player, {x: 0, y: 0});
+            isJumping = false;
+            isSliding = false;
+            slideTimer = 0;
+
+            score = 0;
+            updateScore();
+            gameActive = true;
+            document.getElementById('gameOver').style.display = 'none';
+            document.getElementById('startButton').style.display = 'none';
+        }
+
+        // Collision Check for Game Over
+        Events.on(engine, 'collisionStart', event => {
+            if (!gameActive) return;
+
+            const pairs = event.pairs;
+            pairs.forEach(pair => {
+                let labels = [pair.bodyA.label, pair.bodyB.label];
+                if (labels.includes('player') && labels.includes('obstacle')) {
+                    // Kollisions-Objekt finden
+                    let obstacleBody = pair.bodyA.label === 'obstacle' ? pair.bodyA : pair.bodyB;
+                    let obstacleInfo = obstacles.find(o => o.body === obstacleBody);
+                    if (!obstacleInfo) return;
+
+                    // Bei Low-Hindernissen muss man sliding sein, sonst Game Over
+                    if (obstacleInfo.type === 'low' && !isSliding) {
+                        endGame();
+                    } else if (obstacleInfo.type !== 'low') {
+                        // Pipe oder Block: Kontakt -> Game Over
+                        endGame();
+                    }
+                }
+            });
+        });
+
+        // End Game Funktion
+        function endGame() {
             gameActive = false;
-            clearInterval(obstacleInterval);
             document.getElementById('gameOver').style.display = 'block';
             document.getElementById('startButton').style.display = 'block';
         }
 
-        let runner;
-        let obstacleInterval;
+        // Handle Keyboard Input
+        document.addEventListener('keydown', e => {
+            if (!gameActive) return;
+
+            if (e.code === 'Space') {
+                if (!isJumping && !isSliding) {
+                    Matter.Body.applyForce(player, player.position, {x: 0, y: -0.15});
+                    isJumping = true;
+                }
+            } else if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+                if (!isSliding && !isJumping) {
+                    isSliding = true;
+                    slideTimer = 30; // Slide für 30 Frames (~0.5s bei 60fps)
+                    // Verändere Form (niedriger)
+                    Matter.Body.scale(player, 1, 0.5);
+                }
+            }
+        });
+
+        // Kein Pfeiltasten-Handling, alles deaktiviert
+
+        // Handle Key Up for Slide End
+        document.addEventListener('keyup', e => {
+            if (!gameActive) return;
+
+            if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && isSliding) {
+                isSliding = false;
+                // Ursprüngliche Größe zurücksetzen
+                Matter.Body.scale(player, 1, 2);
+            }
+        });
+
+        // Überwache Bodenkontakt, um Springen zurückzusetzen
+        Events.on(engine, 'afterUpdate', () => {
+            if (!gameActive) return;
+
+            // Prüfe, ob Spieler am Boden ist (nahe ground.y - groundHeight/2)
+            if (player.position.y >= 400 - groundHeight - (isSliding ? playerHeight/4 : playerHeight/2) - 1) {
+                isJumping = false;
+            }
+
+            // Slide Timer (optional automatisch stoppen)
+            if (isSliding) {
+                slideTimer--;
+                if (slideTimer <= 0) {
+                    isSliding = false;
+                    Matter.Body.scale(player, 1, 2);
+                }
+            }
+        });
+
+        // Game Loop
         function gameLoop() {
             if (!gameActive) return;
-            ctx.clearRect(0, 0, 800, 400);
-            ctx.fillStyle = '#87CEEB';
-            ctx.fillRect(0, 0, 800, 400 - groundHeight);
+
+            backgroundOffset += scrollSpeed;
+
+            // Hintergrund zeichnen
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
             drawClouds();
             drawGround();
             drawObstacles();
             drawPlayer();
 
-            obstacles.forEach(obstacle => {
-                Matter.Body.setPosition(obstacle.body, {
-                    x: obstacle.body.position.x - scrollSpeed,
-                    y: obstacle.body.position.y
-                });
-                if (obstacle.body.position.x < -100) {
-                    Composite.remove(world, obstacle.body);
-                    obstacles = obstacles.filter(o => o.body.id !== obstacle.body.id);
-                }
-            });
-
-            backgroundOffset += scrollSpeed;
-            if (backgroundOffset >= 800) backgroundOffset = 0;
-
-            if (isSliding) {
-                slideTimer++;
-                if (slideTimer > 60) {
-                    isSliding = false;
-                    playerHeight = 50;
-                    Matter.Body.setPosition(player, {
-                        x: player.position.x,
-                        y: 400 - groundHeight - playerHeight / 2
-                    });
-                }
+            // Hindernisse bewegen & generieren
+            updateObstacles();
+            if (Math.random() < 0.02) {
+                createObstacle();
             }
 
-            const playerBottom = player.position.y + (isSliding ? 15 : playerHeight / 2);
-            isJumping = playerBottom < 400 - groundHeight - 5;
-
-            score++;
-            document.getElementById('score').textContent = `Score: ${score}`;
-
-            if (score % 500 === 0) {
-                scrollSpeed += 0.5;
-            }
-
+            Engine.update(engine, 1000 / 60);
             requestAnimationFrame(gameLoop);
         }
 
-        document.getElementById('startButton').addEventListener('click', startGame);
+        // Init
+        function init() {
+            createGround();
+            createPlayer();
+            createClouds();
+            updateScore();
+            Render.run(render);
+            Runner.run(Runner.create(), engine);
+        }
 
-        document.addEventListener('keydown', (e) => {
-            if (!gameActive) return;
-
-            if (e.code === 'Space' && !isJumping && !isSliding) {
-                Matter.Body.setVelocity(player, { x: 0, y: -10 });
-                isJumping = true;
-            }
-
-            if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && !isSliding && !isJumping) {
-                isSliding = true;
-                slideTimer = 0;
-                playerHeight = 30;
-                Matter.Body.setPosition(player, {
-                    x: player.position.x,
-                    y: 400 - groundHeight - playerHeight / 2
-                });
+        // Start Button
+        document.getElementById('startButton').addEventListener('click', () => {
+            if (!gameActive) {
+                resetGame();
+                gameLoop();
             }
         });
 
-        document.addEventListener('keyup', (e) => {
-            if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && isSliding) {
-                isSliding = false;
-                playerHeight = 50;
-                Matter.Body.setPosition(player, {
-                    x: player.position.x,
-                    y: 400 - groundHeight - playerHeight / 2
-                });
-            }
-        });
-
-        Events.on(engine, 'collisionStart', (event) => {
-            const pairs = event.pairs;
-            for (let i = 0; i < pairs.length; i++) {
-                const pair = pairs[i];
-                if ((pair.bodyA.label === 'player' && pair.bodyB.label === 'obstacle') ||
-                    (pair.bodyB.label === 'player' && pair.bodyA.label === 'obstacle')) {
-                    const obstacle = pair.bodyA.label === 'obstacle' ? pair.bodyA : pair.bodyB;
-                    const obstacleHeight = obstacle.bounds.max.y - obstacle.bounds.min.y;
-                    if (!isSliding || obstacleHeight < 60) {
-                        gameOver();
-                    }
-                }
-
-                if ((pair.bodyA.label === 'player' && pair.bodyB.label === 'ground') ||
-                    (pair.bodyB.label === 'player' && pair.bodyA.label === 'ground')) {
-                    isJumping = false;
-                }
-            }
-        });
-
-        Render.run(render);
-        createClouds();
+        init();
     </script>
 </body>
 </html>
