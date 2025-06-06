@@ -1,202 +1,393 @@
-import pygame
-import random
-import sys
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mario-ähnliches Laufspiel (Final)</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background: #333;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+        #gameContainer {
+            position: relative;
+            width: 800px;
+            height: 400px;
+            border: 4px solid #555;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.7);
+            overflow: hidden;
+        }
+        #gameCanvas {
+            position: absolute;
+            background: linear-gradient(to bottom, #87CEEB 60%, #4CAF50 60%);
+        }
+        #score {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            font-size: 24px;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+            z-index: 10;
+        }
+        #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 48px;
+            color: red;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+            display: none;
+            z-index: 10;
+        }
+        #startButton {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 15px 30px;
+            font-size: 24px;
+            background: #FF5722;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            z-index: 10;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+        }
+        #startButton:hover {
+            background: #E64A19;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <div id="score">Score: 0</div>
+        <div id="gameOver">Game Over!</div>
+        <button id="startButton">Spiel Starten</button>
+        <canvas id="gameCanvas" width="800" height="400"></canvas>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.18.0/matter.min.js"></script>
+    <script>
+        let gameActive = false;
+        let score = 0;
+        let scrollSpeed = 3;
+        const groundHeight = 40;
+        let playerWidth = 30;
+        let playerHeight = 50;
+        let isJumping = false;
+        let isSliding = false;
+        let slideTimer = 0;
 
-# Initialisierung
-pygame.init()
-screen_width = 800
-screen_height = 400
-screen = pygame.display.set_mode((screen_width, screen_height))
-pygame.display.set_caption("Jump & Slide Game")
-clock = pygame.time.Clock()
+        const Engine = Matter.Engine,
+              Render = Matter.Render,
+              Runner = Matter.Runner,
+              Bodies = Matter.Bodies,
+              Composite = Matter.Composite,
+              Events = Matter.Events;
 
-# Farben
-WHITE = (255, 255, 255)
-BLACK = (0, 0, 0)
-RED = (255, 0, 0)
-GREEN = (0, 128, 0)
-BLUE = (0, 0, 255)
+        const engine = Engine.create();
+        const world = engine.world;
+        engine.gravity.y = 0.8;
 
-# Spieler
-class Player:
-    def __init__(self):
-        self.width = 40
-        self.original_height = 60
-        self.height = self.original_height
-        self.x = 100
-        self.y = screen_height - self.height - 50
-        self.speed = 5
-        self.jumping = False
-        self.jump_velocity = 16  # Höherer Sprung
-        self.jump_count = self.jump_velocity
-        self.gravity = 0.8
-        self.sliding = False
-        self.slide_height = 30
-        self.slide_cooldown = 0
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const render = Render.create({
+            canvas: canvas,
+            engine: engine,
+            options: {
+                width: 800,
+                height: 400,
+                wireframes: false,
+                background: 'transparent'
+            }
+        });
 
-    def update(self):
-        keys = pygame.key.get_pressed()
-        
-        # Bewegung
-        if keys[pygame.K_LEFT]:
-            self.x -= self.speed
-        if keys[pygame.K_RIGHT]:
-            self.x += self.speed
+        let player;
+        let ground;
+        let obstacles = [];
+        let clouds = [];
+        let backgroundOffset = 0;
 
-        # Sprung (höher)
-        if not self.jumping:
-            if keys[pygame.K_UP] or keys[pygame.K_SPACE]:
-                self.jumping = True
-        else:
-            if self.jump_count >= -self.jump_velocity:
-                neg = 1
-                if self.jump_count < 0:
-                    neg = -1
-                self.y -= (self.jump_count ** 2) * 0.5 * neg
-                self.jump_count -= 1
-            else:
-                self.jumping = False
-                self.jump_count = self.jump_velocity
+        function createClouds() {
+            for (let i = 0; i < 5; i++) {
+                clouds.push({
+                    x: Math.random() * 800,
+                    y: Math.random() * 100 + 20,
+                    width: Math.random() * 60 + 40,
+                    speed: Math.random() * 0.5 + 0.2
+                });
+            }
+        }
 
-        # Slide (unter Hindernisse)
-        if (keys[pygame.K_DOWN] or keys[pygame.K_LSHIFT]) and not self.jumping and self.slide_cooldown == 0:
-            self.sliding = True
-            self.height = self.slide_height
-        else:
-            if not (keys[pygame.K_DOWN] or keys[pygame.K_LSHIFT]):
-                self.sliding = False
-                self.height = self.original_height
+        function drawClouds() {
+            ctx.save();
+            clouds.forEach(cloud => {
+                ctx.beginPath();
+                ctx.arc(cloud.x, cloud.y, cloud.width/2, 0, Math.PI * 2);
+                ctx.arc(cloud.x - cloud.width/3, cloud.y - cloud.width/6, cloud.width/3, 0, Math.PI * 2);
+                ctx.arc(cloud.x + cloud.width/3, cloud.y - cloud.width/6, cloud.width/3, 0, Math.PI * 2);
+                ctx.arc(cloud.x - cloud.width/4, cloud.y + cloud.width/6, cloud.width/3, 0, Math.PI * 2);
+                ctx.arc(cloud.x + cloud.width/4, cloud.y + cloud.width/6, cloud.width/3, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                ctx.fill();
+                
+                cloud.x -= cloud.speed;
+                if (cloud.x < -cloud.width) {
+                    cloud.x = 800 + cloud.width;
+                    cloud.y = Math.random() * 100 + 20;
+                }
+            });
+            ctx.restore();
+        }
 
-        if self.slide_cooldown > 0:
-            self.slide_cooldown -= 1
+        function createPlayer() {
+            player = Bodies.rectangle(100, 400 - groundHeight - playerHeight/2, 
+                                    playerWidth, playerHeight, {
+                restitution: 0.2,
+                friction: 0.3,
+                density: 0.05,
+                label: 'player',
+                chamfer: { radius: 5 }
+            });
+            Composite.add(world, player);
+        }
 
-        # Gravitation
-        if self.y < screen_height - self.height - 50 and not self.jumping:
-            self.y += self.gravity
-        else:
-            self.y = screen_height - self.height - 50
+        function drawPlayer() {
+            ctx.save();
+            ctx.translate(player.position.x, player.position.y);
+            ctx.rotate(player.angle);
+            
+            if (isSliding) {
+                ctx.fillStyle = '#FF0000';
+                ctx.fillRect(-playerWidth/2, -15, playerWidth, 30);
+                ctx.fillStyle = '#0000FF';
+                ctx.fillRect(-playerWidth/2, -5, playerWidth, 20);
+            } else {
+                ctx.fillStyle = '#FF0000';
+                ctx.fillRect(-playerWidth/2, -playerHeight/2, playerWidth, playerHeight);
+                ctx.fillStyle = '#0000FF';
+                ctx.fillRect(-playerWidth/2, -playerHeight/6, playerWidth, playerHeight/3);
+            }
 
-        # Bildschirmbegrenzung
-        self.x = max(0, min(self.x, screen_width - self.width))
+            ctx.fillStyle = '#FFC0CB';
+            ctx.beginPath();
+            ctx.arc(0, isSliding ? -10 : -playerHeight/4, playerWidth/3, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.restore();
+        }
 
-    def draw(self):
-        pygame.draw.rect(screen, RED, (self.x, self.y, self.width, self.height))
+        function createGround() {
+            ground = Bodies.rectangle(400, 400 - groundHeight/2, 800, groundHeight, {
+                isStatic: true,
+                label: 'ground',
+                render: { visible: false }
+            });
+            Composite.add(world, ground);
+        }
 
-    def get_rect(self):
-        return pygame.Rect(self.x, self.y, self.width, self.height)
+        function drawGround() {
+            ctx.fillStyle = '#4CAF50';
+            ctx.fillRect(0, 400 - groundHeight, 800, groundHeight);
+            ctx.fillStyle = '#388E3C';
+            for (let x = -backgroundOffset % 40; x < 800; x += 40) {
+                ctx.fillRect(x, 400 - groundHeight, 20, 5);
+            }
+        }
 
-# Hindernisse
-class Obstacle:
-    def __init__(self, x):
-        self.width = 50
-        self.height = random.choice([60, 80, 100])  # Verschiedene Höhen
-        self.x = x
-        self.y = screen_height - self.height - 50
-        self.passed = False
+        function createObstacle() {
+            const types = ['pipe', 'block'];
+            const type = types[Math.floor(Math.random() * types.length)];
+            let obstacle;
+            const x = 850;
 
-    def update(self, speed):
-        self.x -= speed
+            if (type === 'pipe') {
+                const pipeHeight = Math.random() * 50 + 50;
+                obstacle = Bodies.rectangle(x, 400 - groundHeight - pipeHeight/2, 
+                                            50, pipeHeight, {
+                    isStatic: true,
+                    label: 'obstacle'
+                });
+            } else {
+                obstacle = Bodies.rectangle(x, 400 - groundHeight - 30, 
+                                            40, 40, {
+                    isStatic: true,
+                    label: 'obstacle'
+                });
+            }
 
-    def draw(self):
-        pygame.draw.rect(screen, GREEN, (self.x, self.y, self.width, self.height))
+            obstacles.push({ body: obstacle, type: type });
+            Composite.add(world, obstacle);
+        }
 
-    def get_rect(self):
-        return pygame.Rect(self.x, self.y, self.width, self.height)
+        function drawObstacles() {
+            obstacles.forEach(obstacle => {
+                ctx.save();
+                ctx.translate(obstacle.body.position.x, obstacle.body.position.y);
+                ctx.rotate(obstacle.body.angle);
 
-# Spiel-Logik
-class Game:
-    def __init__(self):
-        self.player = Player()
-        self.obstacles = []
-        self.score = 0
-        self.game_speed = 5
-        self.obstacle_timer = 0
-        self.obstacle_frequency = 1500  # ms
-        self.font = pygame.font.SysFont(None, 36)
-        self.game_over = False
+                if (obstacle.type === 'pipe') {
+                    ctx.fillStyle = '#00AA00';
+                    ctx.fillRect(-25, -obstacle.body.bounds.max.y + obstacle.body.position.y, 50, obstacle.body.bounds.max.y - obstacle.body.bounds.min.y);
+                    ctx.fillStyle = '#007700';
+                    ctx.fillRect(-20, -obstacle.body.bounds.max.y + obstacle.body.position.y + 5, 40, 8);
+                } else {
+                    ctx.fillStyle = '#B87333';
+                    ctx.fillRect(-20, -20, 40, 40);
+                    ctx.fillStyle = '#A05A2C';
+                    ctx.fillRect(-15, -15, 30, 5);
+                }
 
-    def spawn_obstacle(self):
-        now = pygame.time.get_ticks()
-        if now - self.obstacle_timer > self.obstacle_frequency:
-            self.obstacle_timer = now
-            self.obstacles.append(Obstacle(screen_width))
+                ctx.restore();
+            });
+        }
 
-    def update(self):
-        if self.game_over:
-            return
+        function startGame() {
+            gameActive = true;
+            score = 0;
+            scrollSpeed = 3;
+            isJumping = false;
+            isSliding = false;
+            document.getElementById('startButton').style.display = 'none';
+            document.getElementById('gameOver').style.display = 'none';
+            Composite.clear(world);
+            obstacles = [];
+            clouds = [];
+            createPlayer();
+            createGround();
+            createClouds();
 
-        self.player.update()
-        self.spawn_obstacle()
+            obstacleInterval = setInterval(() => {
+                if (gameActive) createObstacle();
+            }, 2000);
 
-        for obstacle in self.obstacles[:]:
-            obstacle.update(self.game_speed)
+            if (!runner) {
+                runner = Runner.create();
+                Runner.run(runner, engine);
+            }
 
-            # Kollisionsprüfung mit Slide-Logik
-            if self.player.get_rect().colliderect(obstacle.get_rect()):
-                if self.player.sliding and (self.player.y + self.player.height) >= (obstacle.y + obstacle.height - 5):
-                    # Erfolgreich unter dem Hindernis durchgerutscht
-                    pass
-                else:
-                    self.game_over = True
+            requestAnimationFrame(gameLoop);
+        }
 
-            # Punkte zählen
-            if obstacle.x + obstacle.width < self.player.x and not obstacle.passed:
-                obstacle.passed = True
-                self.score += 1
+        function gameOver() {
+            gameActive = false;
+            clearInterval(obstacleInterval);
+            document.getElementById('gameOver').style.display = 'block';
+            document.getElementById('startButton').style.display = 'block';
+        }
 
-            # Hindernis entfernen
-            if obstacle.x < -obstacle.width:
-                self.obstacles.remove(obstacle)
+        let runner;
+        let obstacleInterval;
+        function gameLoop() {
+            if (!gameActive) return;
+            ctx.clearRect(0, 0, 800, 400);
+            ctx.fillStyle = '#87CEEB';
+            ctx.fillRect(0, 0, 800, 400 - groundHeight);
+            drawClouds();
+            drawGround();
+            drawObstacles();
+            drawPlayer();
 
-        # Schwierigkeit erhöhen
-        self.game_speed = 5 + self.score // 5
+            obstacles.forEach(obstacle => {
+                Matter.Body.setPosition(obstacle.body, {
+                    x: obstacle.body.position.x - scrollSpeed,
+                    y: obstacle.body.position.y
+                });
+                if (obstacle.body.position.x < -100) {
+                    Composite.remove(world, obstacle.body);
+                    obstacles = obstacles.filter(o => o.body.id !== obstacle.body.id);
+                }
+            });
 
-    def draw(self):
-        screen.fill(WHITE)
-        # Boden
-        pygame.draw.rect(screen, BLACK, (0, screen_height - 50, screen_width, 50))
-        
-        # Spieler und Hindernisse
-        self.player.draw()
-        for obstacle in self.obstacles:
-            obstacle.draw()
-        
-        # Score
-        score_text = self.font.render(f"Score: {int(self.score)}", True, BLUE)
-        screen.blit(score_text, (10, 10))
-        
-        if self.game_over:
-            over_text = self.font.render("Game Over! Drücke R zum Neustart", True, BLACK)
-            screen.blit(over_text, (screen_width//2 - 180, screen_height//2 - 18))
+            backgroundOffset += scrollSpeed;
+            if (backgroundOffset >= 800) backgroundOffset = 0;
 
-    def reset(self):
-        self.player = Player()
-        self.obstacles = []
-        self.score = 0
-        self.game_speed = 5
-        self.game_over = False
+            if (isSliding) {
+                slideTimer++;
+                if (slideTimer > 60) {
+                    isSliding = false;
+                    playerHeight = 50;
+                    Matter.Body.setPosition(player, {
+                        x: player.position.x,
+                        y: 400 - groundHeight - playerHeight / 2
+                    });
+                }
+            }
 
-# Hauptspiel-Schleife
-def main():
-    game = Game()
-    running = True
-    
-    while running:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_r and game.game_over:
-                    game.reset()
-        
-        game.update()
-        game.draw()
-        
-        pygame.display.flip()
-        clock.tick(60)
+            const playerBottom = player.position.y + (isSliding ? 15 : playerHeight / 2);
+            isJumping = playerBottom < 400 - groundHeight - 5;
 
-    pygame.quit()
-    sys.exit()
+            score++;
+            document.getElementById('score').textContent = `Score: ${score}`;
 
-if __name__ == "__main__":
-    main()# TeST
+            if (score % 500 === 0) {
+                scrollSpeed += 0.5;
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        document.getElementById('startButton').addEventListener('click', startGame);
+
+        document.addEventListener('keydown', (e) => {
+            if (!gameActive) return;
+
+            if (e.code === 'Space' && !isJumping && !isSliding) {
+                Matter.Body.setVelocity(player, { x: 0, y: -10 });
+                isJumping = true;
+            }
+
+            if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && !isSliding && !isJumping) {
+                isSliding = true;
+                slideTimer = 0;
+                playerHeight = 30;
+                Matter.Body.setPosition(player, {
+                    x: player.position.x,
+                    y: 400 - groundHeight - playerHeight / 2
+                });
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && isSliding) {
+                isSliding = false;
+                playerHeight = 50;
+                Matter.Body.setPosition(player, {
+                    x: player.position.x,
+                    y: 400 - groundHeight - playerHeight / 2
+                });
+            }
+        });
+
+        Events.on(engine, 'collisionStart', (event) => {
+            const pairs = event.pairs;
+            for (let i = 0; i < pairs.length; i++) {
+                const pair = pairs[i];
+                if ((pair.bodyA.label === 'player' && pair.bodyB.label === 'obstacle') ||
+                    (pair.bodyB.label === 'player' && pair.bodyA.label === 'obstacle')) {
+                    const obstacle = pair.bodyA.label === 'obstacle' ? pair.bodyA : pair.bodyB;
+                    const obstacleHeight = obstacle.bounds.max.y - obstacle.bounds.min.y;
+                    if (!isSliding || obstacleHeight < 60) {
+                        gameOver();
+                    }
+                }
+
+                if ((pair.bodyA.label === 'player' && pair.bodyB.label === 'ground') ||
+                    (pair.bodyB.label === 'player' && pair.bodyA.label === 'ground')) {
+                    isJumping = false;
+                }
+            }
+        });
+
+        Render.run(render);
+        createClouds();
+    </script>
+</body>
+</html>
